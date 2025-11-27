@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Floppy disk body -->
+  <rect x="12" y="12" width="104" height="104" rx="8" ry="8" fill="white" stroke="#1a1a1a" stroke-width="6"/>
+
+  <!-- Top label area -->
+  <rect x="24" y="20" width="80" height="36" rx="4" ry="4" fill="white" stroke="#1a1a1a" stroke-width="4"/>
+
+  <!-- Sliding part -->
+  <rect x="56" y="20" width="24" height="28" fill="#1a1a1a"/>
+
+  <!-- Bottom section line -->
+  <line x1="12" y1="68" x2="116" y2="68" stroke="#1a1a1a" stroke-width="4"/>
+
+  <!-- PDF text -->
+  <text x="64" y="100" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#1a1a1a" text-anchor="middle">PDF</text>
+</svg>

@@ -15,6 +15,16 @@ export default defineManifest(async (env) => ({
     version_name: version,
     action: {
         // No default_popup - icon click triggers side panel via setPanelBehavior()
+        default_icon: {
+            '16': 'icons/icon16.png',
+            '48': 'icons/icon48.png',
+            '128': 'icons/icon128.png'
+        }
+    },
+    icons: {
+        '16': 'icons/icon16.png',
+        '48': 'icons/icon48.png',
+        '128': 'icons/icon128.png'
     },
     side_panel: {
         default_path: 'src/ui/sidepanel/index.html'
