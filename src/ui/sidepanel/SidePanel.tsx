@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import type { Article } from '../../core/types';
 
 type Status = 'idle' | 'extracting' | 'ready' | 'generating-pdf' | 'error';
@@ -220,7 +221,12 @@ export function SidePanel() {
 
                 <div
                     className="prose prose-sm max-w-none prose-img:rounded-lg prose-img:shadow-md prose-a:text-blue-600"
-                    dangerouslySetInnerHTML={{ __html: state.article.content }}
+                    dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(state.article.content, {
+                            ADD_TAGS: ['img', 'figure', 'figcaption'],
+                            ADD_ATTR: ['src', 'alt', 'title', 'width', 'height']
+                        })
+                    }}
                 />
 
                 {/* Source URL */}

@@ -1,3 +1,7 @@
+interface PrintToPDFResult {
+    data: string;
+}
+
 export class DebuggerService {
     private target: chrome.debugger.Debuggee;
 
@@ -9,7 +13,7 @@ export class DebuggerService {
         return new Promise((resolve, reject) => {
             chrome.debugger.attach(this.target, '1.3', () => {
                 if (chrome.runtime.lastError) {
-                    reject(chrome.runtime.lastError);
+                    reject(new Error(chrome.runtime.lastError.message));
                 } else {
                     resolve();
                 }
@@ -20,7 +24,7 @@ export class DebuggerService {
     public async detach(): Promise<void> {
         return new Promise((resolve) => {
             chrome.debugger.detach(this.target, () => {
-                // Ignore errors on detach
+                // Ignore errors on detach - tab may already be closed
                 resolve();
             });
         });
@@ -30,10 +34,11 @@ export class DebuggerService {
         return new Promise((resolve, reject) => {
             chrome.debugger.sendCommand(this.target, 'Page.printToPDF', options, (result) => {
                 if (chrome.runtime.lastError) {
-                    reject(chrome.runtime.lastError);
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else if (result) {
+                    resolve((result as PrintToPDFResult).data);
                 } else {
-                    // result.data is the base64 encoded PDF
-                    resolve((result as any).data);
+                    reject(new Error('No result from printToPDF'));
                 }
             });
         });

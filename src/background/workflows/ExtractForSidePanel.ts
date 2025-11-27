@@ -1,42 +1,31 @@
 import { DebuggerService } from '../../services/chrome/debugger';
 import { sendMessage } from '../../services/chrome/messaging';
 import type { Article } from '../../core/types';
+import { waitForMessage, generatePDFFilename } from './shared';
 
 import contentScriptPath from '../../content/index.ts?script';
 
-async function injectContentScript(tabId: number) {
+interface ExtractContentResponse {
+    success: boolean;
+    data?: Article;
+    error?: string;
+}
+
+async function injectContentScript(tabId: number): Promise<void> {
     try {
         await chrome.scripting.executeScript({
             target: { tabId },
             files: [contentScriptPath]
         });
-        console.log('Content script injected successfully');
     } catch (error) {
         const errorMessage = (error as Error).message || '';
-        // Only ignore if script is already injected (duplicate injection)
+        // Throw error for restricted pages
         if (errorMessage.includes('Cannot access a chrome://') ||
             errorMessage.includes('Cannot access a chrome-extension://')) {
             throw new Error('Cannot extract content from this page type');
         }
-        // For "already injected" type errors, log and continue
-        console.log('Content script injection note:', errorMessage);
+        // For other errors (e.g., script already injected), continue silently
     }
-}
-
-function waitForMessage(type: string, senderTabId: number, timeoutMs = 10000): Promise<any> {
-    return new Promise((resolve, reject) => {
-        const listener = (message: any, sender: chrome.runtime.MessageSender) => {
-            if (message.type === type && sender.tab?.id === senderTabId) {
-                chrome.runtime.onMessage.removeListener(listener);
-                resolve(message.payload);
-            }
-        };
-        chrome.runtime.onMessage.addListener(listener);
-        setTimeout(() => {
-            chrome.runtime.onMessage.removeListener(listener);
-            reject(new Error(`Timeout waiting for message: ${type}`));
-        }, timeoutMs);
-    });
 }
 
 /**
@@ -44,29 +33,20 @@ function waitForMessage(type: string, senderTabId: number, timeoutMs = 10000): P
  * Used by the side panel to display reader view.
  */
 export async function extractForSidePanel(tabId: number): Promise<Article> {
-    console.log('Extracting for side panel, tab:', tabId);
+    // 1. Inject content script if needed
+    await injectContentScript(tabId);
 
-    try {
-        // 1. Inject content script if needed
-        await injectContentScript(tabId);
+    // 2. Extract content
+    const response = await sendMessage<ExtractContentResponse>(
+        tabId,
+        { type: 'EXTRACT_CONTENT' }
+    );
 
-        // 2. Extract content
-        const response = await sendMessage<{ success: boolean; data?: Article; error?: string }>(
-            tabId,
-            { type: 'EXTRACT_CONTENT' }
-        );
-
-        if (!response || !response.success || !response.data) {
-            throw new Error(response?.error || 'Failed to extract content');
-        }
-
-        console.log('Extracted article:', response.data.title);
-        return response.data;
-
-    } catch (error) {
-        console.error('Side panel extraction failed:', error);
-        throw error;
+    if (!response || !response.success || !response.data) {
+        throw new Error(response?.error || 'Failed to extract content');
     }
+
+    return response.data;
 }
 
 /**
@@ -74,8 +54,6 @@ export async function extractForSidePanel(tabId: number): Promise<Article> {
  * Uses a hidden reader tab for PDF generation.
  */
 export async function generatePDFFromSidePanel(article: Article): Promise<string> {
-    console.log('Generating PDF from side panel:', article.title);
-
     let readerTabId: number | undefined;
 
     try {
@@ -94,59 +72,53 @@ export async function generatePDFFromSidePanel(article: Article): Promise<string
         }
 
         // 3. Wait for reader to be ready
-        console.log('Waiting for reader to be ready...');
         await waitForMessage('READER_READY', readerTabId);
 
         // 4. Attach debugger and generate PDF
-        console.log('Attaching debugger...');
         const debuggerService = new DebuggerService(readerTabId);
+        await debuggerService.attach();
 
-        try {
-            await debuggerService.attach();
+        const pdfBase64 = await debuggerService.printToPDF({
+            printBackground: true,
+            marginTop: 0,
+            marginBottom: 0,
+            marginLeft: 0,
+            marginRight: 0,
+        });
 
-            console.log('Generating PDF...');
-            const pdfBase64 = await debuggerService.printToPDF({
-                printBackground: true,
-                marginTop: 0,
-                marginBottom: 0,
-                marginLeft: 0,
-                marginRight: 0,
-            });
+        // 5. Generate filename and download
+        const filename = generatePDFFilename(article);
+        const dataUrl = `data:application/pdf;base64,${pdfBase64}`;
+        await chrome.downloads.download({
+            url: dataUrl,
+            filename,
+            saveAs: false
+        });
 
-            // 5. Generate filename: title_sitename_datetime.pdf
-            const sanitize = (str: string, maxLen = 80) => str.replace(/[^a-z0-9\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, maxLen);
-            const title = article.title ? sanitize(article.title) : '';
-            const siteName = article.siteName ? sanitize(article.siteName, 30) : '';
-            const now = new Date();
-            const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            const parts = [title, siteName, timestamp].filter(Boolean);
-            const filename = `${parts.join('_')}.pdf`;
+        // 6. Cleanup debugger before closing tab
+        await debuggerService.detach();
 
-            // 6. Download via downloads API
-            const dataUrl = `data:application/pdf;base64,${pdfBase64}`;
-            await chrome.downloads.download({
-                url: dataUrl,
-                filename,
-                saveAs: false
-            });
-
-            console.log('PDF download started:', filename);
-            return filename;
-
-        } finally {
-            // 7. Cleanup: detach debugger
-            await debuggerService.detach();
-        }
+        return filename;
 
     } finally {
-        // 8. Cleanup: close reader tab and clear storage
+        // Cleanup: close reader tab first, then clear storage
+        // Only clear storage if tab was successfully closed
         if (readerTabId) {
             try {
-                await chrome.tabs.remove(readerTabId);
-            } catch (e) {
-                console.warn('Could not close reader tab:', e);
+                // Check if tab still exists before trying to close
+                const tab = await chrome.tabs.get(readerTabId).catch(() => null);
+                if (tab) {
+                    await chrome.tabs.remove(readerTabId);
+                }
+                // Only clear storage after successful tab cleanup
+                await chrome.storage.local.remove('currentArticle');
+            } catch {
+                // Tab cleanup failed - don't clear storage to avoid confusing state
+                console.error('Failed to cleanup reader tab, storage not cleared');
             }
+        } else {
+            // No tab was created, safe to clear storage
+            await chrome.storage.local.remove('currentArticle');
         }
-        await chrome.storage.local.remove('currentArticle');
     }
 }

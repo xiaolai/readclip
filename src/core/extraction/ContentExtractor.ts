@@ -20,12 +20,16 @@ export class ContentExtractor {
             if (el instanceof HTMLImageElement && el.getAttribute('src')) {
                 try {
                     el.src = new URL(el.getAttribute('src')!, baseURI).href;
-                } catch (e) { /* ignore invalid URLs */ }
+                } catch {
+                    // Ignore invalid URLs - attribute will remain unchanged
+                }
             }
             if (el instanceof HTMLAnchorElement && el.getAttribute('href')) {
                 try {
                     el.href = new URL(el.getAttribute('href')!, baseURI).href;
-                } catch (e) { /* ignore */ }
+                } catch {
+                    // Ignore invalid URLs - attribute will remain unchanged
+                }
             }
         });
 

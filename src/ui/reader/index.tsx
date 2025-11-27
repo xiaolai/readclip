@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
+import DOMPurify from 'dompurify';
 import '../styles/global.css';
 import type { Article } from '../../core/types';
 
-function Reader() {
+export function Reader() {
     const [article, setArticle] = useState<Article | null>(null);
     const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
     const [filename, setFilename] = useState<string>('document.pdf');
@@ -12,14 +13,26 @@ function Reader() {
     useEffect(() => {
         // 1. Check storage immediately
         chrome.storage.local.get('currentArticle', (result) => {
+            if (chrome.runtime.lastError) {
+                console.error('Storage error:', chrome.runtime.lastError.message);
+                return;
+            }
             if (result.currentArticle) {
                 setArticle(result.currentArticle as Article);
                 chrome.runtime.sendMessage({ type: 'READER_READY' });
             }
         });
 
+        interface ReaderMessage {
+            type: string;
+            payload?: {
+                dataBase64?: string;
+                filename?: string;
+            } | Article;
+        }
+
         // 2. Listen for messages
-        const listener = async (message: any) => {
+        const listener = async (message: ReaderMessage) => {
             if (message.type === 'RENDER_ARTICLE' && message.payload) {
                 setArticle(message.payload as Article);
                 chrome.runtime.sendMessage({ type: 'READER_READY' });
@@ -27,7 +40,8 @@ function Reader() {
 
             if (message.type === 'DOWNLOAD_PDF' && message.payload) {
                 setStatus('Processing PDF...');
-                const { dataBase64, filename: fName } = message.payload;
+                const payload = message.payload as { dataBase64: string; filename: string };
+                const { dataBase64, filename: fName } = payload;
                 try {
                     // Manual Base64 → Uint8Array conversion avoids data-URL size limits
                     const binaryString = atob(dataBase64);
@@ -65,6 +79,15 @@ function Reader() {
         return () => chrome.runtime.onMessage.removeListener(listener);
     }, []);
 
+    // Cleanup blob URLs to prevent memory leaks (C-002 fix)
+    useEffect(() => {
+        return () => {
+            if (downloadUrl) {
+                URL.revokeObjectURL(downloadUrl);
+            }
+        };
+    }, [downloadUrl]);
+
     if (!article) {
         return <div className="p-8 text-center">Loading content...</div>;
     }
@@ -96,7 +119,12 @@ function Reader() {
             )}
             <div
                 className="prose prose-lg max-w-none prose-img:rounded-xl prose-img:shadow-lg prose-a:text-blue-600"
-                dangerouslySetInnerHTML={{ __html: article.content }}
+                dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(article.content, {
+                        ADD_TAGS: ['img', 'figure', 'figcaption'],
+                        ADD_ATTR: ['src', 'alt', 'title', 'width', 'height']
+                    })
+                }}
             />
 
             {/* Source URL at the bottom for PDF */}

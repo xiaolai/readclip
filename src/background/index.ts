@@ -46,6 +46,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // The reader tab has opened. It should now check storage.
         // We can also actively send it if we want, but storage is easier.
         chrome.storage.local.get('currentArticle', (result) => {
+            if (chrome.runtime.lastError) {
+                console.error('Storage error:', chrome.runtime.lastError.message);
+                return;
+            }
             if (result.currentArticle && sender.tab?.id) {
                 chrome.tabs.sendMessage(sender.tab.id, {
                     type: 'RENDER_ARTICLE',
