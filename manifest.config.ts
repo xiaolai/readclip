@@ -9,8 +9,8 @@ const [major, minor, patch] = version.split(/[.-]/)
 
 export default defineManifest(async (env) => ({
     manifest_version: 3,
-    name: env.mode === 'staging' ? '[DEV] Reader Mode' : 'Reader Mode',
-    description: 'Extract and read articles in a clean reader view. Save as PDF.',
+    name: env.mode === 'staging' ? '[DEV] ReadClip' : 'ReadClip',
+    description: 'Clip articles for clean reading. Save as PDF.',
     version: `${major}.${minor}.${patch}`,
     version_name: version,
     action: {
